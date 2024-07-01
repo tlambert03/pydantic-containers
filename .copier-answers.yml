@@ -1,8 +1,0 @@
-# Do not edit - changes here will be overwritten by Copier
-_commit: v1
-_src_path: gh:tlambert03/pyrepo
-mode: tooling
-module_name: pydantic_containers
-project_name: pydantic-containers
-project_short_description: Type-safe generic containers for use as pydantic fields
-
