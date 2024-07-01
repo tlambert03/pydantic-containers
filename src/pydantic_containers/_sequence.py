@@ -58,8 +58,11 @@ class ValidatedList(MutableSequence[_T]):
     def __setitem__(self, key: slice, value: Iterable[_T]) -> None: ...
     def __setitem__(self, key: slice | SupportsIndex, value: _T | Iterable[_T]) -> None:
         if self._validate_item is not None:
-            value = self._validate_item(value)
-        self._list[key] = value
+            if isinstance(value, Iterable):
+                value = (self._validate_item(v) for v in value)
+            else:
+                value = self._validate_item(value)
+        self._list[key] = value  # type: ignore [index,assignment]
 
     def __delitem__(self, key: SupportsIndex | slice) -> None:
         del self._list[key]
@@ -101,7 +104,7 @@ class ValidatedList(MutableSequence[_T]):
         # define function that creates new instance during assignment
         # passing in the validator functions.
         def _new(*args: Any, **kwargs: Any) -> ValidatedList[_T]:
-            return cls(  # type: ignore[call-overload,no-any-return]
+            return cls(
                 *args,
                 item_validator=validate_item,
                 **kwargs,

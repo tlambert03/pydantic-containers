@@ -91,7 +91,7 @@ class ValidatedSet(MutableSet[_T]):
         # define function that creates new instance during assignment
         # passing in the validator functions.
         def _new(*args: Any, **kwargs: Any) -> ValidatedSet[_T]:
-            return cls(  # type: ignore[call-overload,no-any-return]
+            return cls(
                 *args,
                 item_validator=validate_item,
                 **kwargs,

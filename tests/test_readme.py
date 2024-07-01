@@ -11,11 +11,16 @@ def test_readme() -> None:
         model_config = ConfigDict(validate_default=True)
 
     obj = MyModel()
-    obj.my_list.append("1")
+    obj.my_list.append("1")  # type: ignore
     assert obj.my_list == [1]
 
     obj.my_dict["key"] = ["1"]
     assert obj.my_dict == {"key": [1]}
 
-    obj.my_set.add("1")
+    obj.my_set.add("1")  # type: ignore
     assert obj.my_set == {1}
+
+    assert isinstance(MyModel.model_json_schema(), dict)
+    assert isinstance(obj.model_dump_json(), str)
+    assert isinstance(obj.model_dump(mode="json"), dict)
+    assert isinstance(obj.model_dump(mode="python"), dict)
