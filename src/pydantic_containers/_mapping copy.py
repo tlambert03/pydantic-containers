@@ -1,16 +1,18 @@
 from __future__ import annotations
 
-from collections import UserDict, defaultdict
 from functools import cached_property
 from typing import (
     TYPE_CHECKING,
     Any,
     Callable,
     Iterable,
+    Iterator,
     Mapping,
+    MutableMapping,
+    Protocol,
     TypeVar,
     get_args,
-    get_origin,
+    overload,
 )
 
 from pydantic import TypeAdapter
@@ -21,32 +23,104 @@ if TYPE_CHECKING:
 
 _KT = TypeVar("_KT")
 _VT = TypeVar("_VT")
+_VT_co = TypeVar("_VT_co", covariant=True)
 
 
-class ValidatedDict(UserDict[_KT, _VT]):
-    # Start by filling-out the abstract methods
-    def __init__(
-        self,
-        m: Mapping[_KT, _VT] | Iterable[tuple[_KT, _VT]] | None = None,
-        /,
+class SupportsKeysAndGetItem(Protocol[_KT, _VT_co]):
+    def keys(self) -> Iterable[_KT]: ...
+    def __getitem__(self, key: _KT, /) -> _VT_co: ...
+
+
+class ValidatedDict(MutableMapping[_KT, _VT]):
+    @overload
+    def __init__(self) -> None: ...
+    @overload
+    def __init__(  # type: ignore[misc]
+        self: dict[str, _VT],
         key_validator: Callable[[Any], _KT] | None = None,
         value_validator: Callable[[Any], _VT] | None = None,
         **kwargs: _VT,
+    ) -> None: ...
+    @overload
+    def __init__(
+        self,
+        map: SupportsKeysAndGetItem[_KT, _VT],
+        /,
+        key_validator: Callable[[Any], _KT] | None = None,
+        value_validator: Callable[[Any], _VT] | None = None,
+    ) -> None: ...
+    @overload
+    def __init__(  # type: ignore[misc]
+        self: dict[str, _VT],
+        map: SupportsKeysAndGetItem[str, _VT],
+        /,
+        key_validator: Callable[[Any], _KT] | None = ...,
+        value_validator: Callable[[Any], _VT] | None = ...,
+        validate_lookup: bool = ...,
+        **kwargs: _VT,
+    ) -> None: ...
+    @overload
+    def __init__(
+        self,
+        iterable: Iterable[tuple[_KT, _VT]],
+        /,
+        key_validator: Callable[[Any], _KT] | None = ...,
+        value_validator: Callable[[Any], _VT] | None = ...,
+        validate_lookup: bool = ...,
+    ) -> None: ...
+    @overload
+    def __init__(  # type: ignore[misc]
+        self: dict[str, _VT],
+        iterable: Iterable[tuple[str, _VT]],
+        /,
+        key_validator: Callable[[Any], _KT] | None = ...,
+        value_validator: Callable[[Any], _VT] | None = ...,
+        validate_lookup: bool = ...,
+        **kwargs: _VT,
+    ) -> None: ...
+    def __init__(  # type: ignore[misc] # does not accept all possible overloads
+        self,
+        *args: Any,
+        key_validator: Callable[[Any], _KT] | None = None,
+        value_validator: Callable[[Any], _VT] | None = None,
+        validate_lookup: bool = False,
+        **kwargs: Any,
     ) -> None:
         self._key_validator = key_validator
         self._value_validator = value_validator
-        self.data = {}
-        if m is not None:
-            self.update(m)
-        if kwargs:
-            self.update(kwargs)  # type: ignore
+        self._validate_lookup = validate_lookup
+        _d = {}
+        for k, v in dict(*args, **kwargs).items():
+            if self._key_validator is not None:
+                k = self._key_validator(k)
+            if self._value_validator is not None:
+                v = self._value_validator(v)
+            _d[k] = v
+        self._dict: dict[_KT, _VT] = _d
 
     # ---------------- abstract interface ----------------
 
+    def __getitem__(self, key: _KT) -> _VT:
+        if self._validate_lookup:
+            key = self._validate_key(key)
+        return self._dict[key]
+
+    # def __setitem__(self, key: _KT, value: _VT) -> None:
     def __setitem__(self, key: Any, value: Any) -> None:
         key = self._validate_key(key)
         value = self._validate_value(value)
-        self.data[key] = value
+        self._dict[key] = value
+
+    def __delitem__(self, key: _KT) -> None:
+        if self._validate_lookup:
+            key = self._validate_key(key)
+        del self._dict[key]
+
+    def __len__(self) -> int:
+        return len(self._dict)
+
+    def __iter__(self) -> Iterator[_KT]:
+        return iter(self._dict)
 
     # -----------------------------------------------------
 
@@ -73,7 +147,7 @@ class ValidatedDict(UserDict[_KT, _VT]):
         return lambda x: x
 
     def __repr__(self) -> str:
-        return f"{type(self).__name__}({self.data!r})"
+        return f"{type(self).__name__}({self._dict!r})"
 
     @classmethod
     def __get_pydantic_core_schema__(
@@ -96,9 +170,12 @@ class ValidatedDict(UserDict[_KT, _VT]):
         # define function that creates new instance during assignment
         # passing in the validator functions.
         def _new(*args: Any, **kwargs: Any) -> ValidatedDict[_KT, _VT]:
-            kwargs["key_validator"] = validate_key
-            kwargs["value_validator"] = validate_value
-            return cls(val_type, *args, **kwargs)
+            return cls(  # type: ignore[call-overload,no-any-return]
+                *args,
+                key_validator=validate_key,
+                value_validator=validate_value,
+                **kwargs,
+            )
 
         schema = core_schema.dict_schema(
             keys_schema=keys_schema, values_schema=values_schema
@@ -107,27 +184,6 @@ class ValidatedDict(UserDict[_KT, _VT]):
             function=_new,
             schema=schema,
             serialization=core_schema.plain_serializer_function_ser_schema(
-                lambda x: x.data, return_schema=schema
+                lambda x: x._dict, return_schema=schema
             ),
         )
-
-
-class ValidatedDefaultDict(ValidatedDict[_KT, _VT]):
-    def __init__(
-        self,
-        default_factory: Callable[[], _VT] | None = None,
-        m: Mapping[_KT, _VT] | Iterable[tuple[_KT, _VT]] | None = None,
-        /,
-        key_validator: Callable[[Any], _KT] | None = None,
-        value_validator: Callable[[Any], _VT] | None = None,
-        **kwargs: _VT,
-    ) -> None:
-        super().__init__(m, key_validator, value_validator, **kwargs)
-        self.default_factory = default_factory
-
-    def __getitem__(self, key: _KT) -> _VT:
-        if key in self:
-            return super().__getitem__(key)
-        value = self.default_factory() if self.default_factory else None
-        self[key] = value
-        return value

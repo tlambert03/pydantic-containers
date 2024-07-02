@@ -115,9 +115,14 @@ class ValidatedList(MutableSequence[_T]):
             )
 
         schema = core_schema.list_schema(items_schema=items_schema)
-        return core_schema.no_info_after_validator_function(
-            function=_new,
-            schema=schema,
+
+        return core_schema.union_schema(
+            [
+                core_schema.is_instance_schema(cls),
+                core_schema.no_info_after_validator_function(
+                    function=_new, schema=schema
+                ),
+            ],
             serialization=core_schema.plain_serializer_function_ser_schema(
                 lambda x: x._list, return_schema=schema
             ),
