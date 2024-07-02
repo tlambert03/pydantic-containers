@@ -32,10 +32,17 @@ obj.my_set.add("1")
 assert obj.my_set == {1}
 ```
 
-These also work as bare types:
+These also work as bare types, with the major caveat that validation will *not*
+occur during initialization
+(see <https://discuss.python.org/t/runtime-access-to-type-parameters/37517> for
+discussion)
 
 ```python
 x = ValidatedDict[int, list[float]]()
 x.update({"1": ["7.5"]})
 assert x[1] == [7.5]
+
+# CAREFUL!
+x = ValidatedDict[int, list[float]]({"1": ["7.5"]})
+assert x[1] == [7.5]  # This will fail
 ```
