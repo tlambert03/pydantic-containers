@@ -6,9 +6,6 @@ from pydantic_containers import ValidatedDict
 def test_mapping() -> None:
     class T(BaseModel):
         d: ValidatedDict[int, list[float]] = Field(default_factory=dict)
-        # NOTE: it's currently critical that validate_default is used
-        # or else you must provide a default_factory that includes the type
-        # passing the validators to the constructor
         model_config = ConfigDict(validate_default=True)
 
     t = T()
@@ -26,3 +23,9 @@ def test_mapping() -> None:
     t2.d.update({"2": [7.5, "10"]})  # type: ignore
     assert t2.d[2] == [7.5, 10.0]
     assert t2 != t
+
+
+def test_bare_type() -> None:
+    x = ValidatedDict[int, list[float]]()
+    x.update({"1": ["7.5"]})  # type: ignore
+    assert x[1] == [7.5]

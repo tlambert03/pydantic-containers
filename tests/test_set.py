@@ -6,7 +6,6 @@ from pydantic_containers import ValidatedSet
 def test_sequence() -> None:
     class T(BaseModel):
         x: ValidatedSet[int] = Field(default_factory=list)
-        # NOTE: it's currently critical that validate_default is used
         model_config = ConfigDict(validate_default=True)
 
     t = T()
@@ -24,3 +23,9 @@ def test_sequence() -> None:
     t2.x.add("2")  # type: ignore
     assert tuple(t2.x) == (1, 2)
     assert t2 != t
+
+
+def test_bare_type() -> None:
+    x = ValidatedSet[int]()
+    x.add("1")  # type: ignore
+    assert 1 in x

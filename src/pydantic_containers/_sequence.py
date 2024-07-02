@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cached_property
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -38,9 +39,9 @@ class ValidatedList(MutableSequence[_T]):
         *,
         item_validator: Callable[[Any], _T] | None = None,
     ) -> None:
-        self._validate_item = item_validator or self._cls_item_validator()
-        if self._validate_item is not None:
-            iterable = (self._validate_item(v) for v in iterable)
+        self._item_validator = item_validator
+        if self._item_validator is not None:
+            iterable = (self._item_validator(v) for v in iterable)
         self._list = list(iterable)
 
     # ---------------- abstract interface ----------------
@@ -57,19 +58,17 @@ class ValidatedList(MutableSequence[_T]):
     @overload
     def __setitem__(self, key: slice, value: Iterable[_T]) -> None: ...
     def __setitem__(self, key: slice | SupportsIndex, value: _T | Iterable[_T]) -> None:
-        if self._validate_item is not None:
-            if isinstance(value, Iterable):
-                value = (self._validate_item(v) for v in value)
-            else:
-                value = self._validate_item(value)
+        if isinstance(value, Iterable):
+            value = (self._validate_item(v) for v in value)
+        else:
+            value = self._validate_item(value)
         self._list[key] = value  # type: ignore [index,assignment]
 
     def __delitem__(self, key: SupportsIndex | slice) -> None:
         del self._list[key]
 
     def insert(self, index: SupportsIndex, obj: _T) -> None:
-        if self._validate_item is not None:
-            obj = self._validate_item(obj)
+        obj = self._validate_item(obj)
         self._list.insert(index, obj)
 
     def __len__(self) -> int:
@@ -83,11 +82,16 @@ class ValidatedList(MutableSequence[_T]):
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self._list!r})"
 
-    @classmethod
-    def _cls_item_validator(cls) -> Callable[[Any], _T] | None:
+    @cached_property
+    def _validate_item(self) -> Callable[[Any], _T]:
+        if self._item_validator is not None:
+            return self._item_validator
+        # __orig_class__ is not available during __init__
+        # https://discuss.python.org/t/runtime-access-to-type-parameters/37517
+        cls = getattr(self, "__orig_class__", None) or type(self)
         if args := get_args(cls):
             return TypeAdapter(args[0]).validator.validate_python
-        return None
+        return lambda x: x
 
     @classmethod
     def __get_pydantic_core_schema__(

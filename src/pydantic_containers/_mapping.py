@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from functools import cached_property
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -85,35 +86,33 @@ class ValidatedDict(MutableMapping[_KT, _VT]):
         validate_lookup: bool = False,
         **kwargs: Any,
     ) -> None:
-        self._validate_key = key_validator or self._cls_key_validator()
-        self._validate_value = value_validator or self._cls_value_validator()
+        self._key_validator = key_validator
+        self._value_validator = value_validator
         self._validate_lookup = validate_lookup
         _d = {}
         for k, v in dict(*args, **kwargs).items():
-            if self._validate_key is not None:
-                k = self._validate_key(k)
-            if self._validate_value is not None:
-                v = self._validate_value(v)
+            if self._key_validator is not None:
+                k = self._key_validator(k)
+            if self._value_validator is not None:
+                v = self._value_validator(v)
             _d[k] = v
         self._dict: dict[_KT, _VT] = _d
 
     # ---------------- abstract interface ----------------
 
     def __getitem__(self, key: _KT) -> _VT:
-        if self._validate_lookup and self._validate_key is not None:
+        if self._validate_lookup:
             key = self._validate_key(key)
         return self._dict[key]
 
     # def __setitem__(self, key: _KT, value: _VT) -> None:
     def __setitem__(self, key: Any, value: Any) -> None:
-        if self._validate_key is not None:
-            key = self._validate_key(key)
-        if self._validate_value is not None:
-            value = self._validate_value(value)
+        key = self._validate_key(key)
+        value = self._validate_value(value)
         self._dict[key] = value
 
     def __delitem__(self, key: _KT) -> None:
-        if self._validate_lookup and self._validate_key is not None:
+        if self._validate_lookup:
             key = self._validate_key(key)
         del self._dict[key]
 
@@ -125,17 +124,27 @@ class ValidatedDict(MutableMapping[_KT, _VT]):
 
     # -----------------------------------------------------
 
-    @classmethod
-    def _cls_key_validator(cls) -> Callable[[Any], _KT] | None:
+    @cached_property
+    def _validate_key(self) -> Callable[[Any], _KT]:
+        if self._key_validator is not None:
+            return self._key_validator
+        # __orig_class__ is not available during __init__
+        # https://discuss.python.org/t/runtime-access-to-type-parameters/37517
+        cls = getattr(self, "__orig_class__", None) or type(self)
         if args := get_args(cls):
             return TypeAdapter(args[0]).validator.validate_python
-        return None
+        return lambda x: x
 
-    @classmethod
-    def _cls_value_validator(cls) -> Callable[[Any], _VT] | None:
+    @cached_property
+    def _validate_value(self) -> Callable[[Any], _VT]:
+        if self._value_validator is not None:
+            return self._value_validator
+        # __orig_class__ is not available during __init__
+        # https://discuss.python.org/t/runtime-access-to-type-parameters/37517
+        cls = getattr(self, "__orig_class__", None) or type(self)
         if len(args := get_args(cls)) > 1:
             return TypeAdapter(args[1]).validator.validate_python
-        return None
+        return lambda x: x
 
     def __repr__(self) -> str:
         return f"{type(self).__name__}({self._dict!r})"
